@@ -14,33 +14,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Localiza o projeto: se a raiz do repo já tem settings.gradle(.kts), usa a raiz.
-      # Senão, pega o primeiro .zip do repositório, descompacta e procura o settings.gradle(.kts).
       - name: Locate project (unzip if needed)
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           WS="$GITHUB_WORKSPACE"
-          if [ -f "$WS/settings.gradle.kts" ] || [ -f "$WS/settings.gradle" ]; then
+          if [[ -f "$WS/settings.gradle.kts" || -f "$WS/settings.gradle" ]]; then
             ROOT="$WS"
-            echo "Projeto encontrado na raiz do repositório."
           else
-            ZIP=$(find "$WS" -type f -iname '*.zip' -not -path '*/.git/*' | head -n 1)
-            if [ -z "$ZIP" ]; then
-              echo "::error::Nenhum settings.gradle(.kts) na raiz e nenhum .zip encontrado no repositório."
+            ZIP="$WS/mobile2dstudio-fase2d.zip"
+            if [[ ! -f "$ZIP" ]]; then
+              echo "::error::Arquivo mobile2dstudio-fase2d.zip não encontrado."
               exit 1
             fi
-            echo "Descompactando: $ZIP"
             mkdir -p "$WS/_project"
             unzip -q -o "$ZIP" -d "$WS/_project"
-            SETTINGS=$(find "$WS/_project" -type f \( -name settings.gradle.kts -o -name settings.gradle \) | head -n 1)
-            if [ -z "$SETTINGS" ]; then
-              echo "::error::O zip não contém settings.gradle(.kts)."
+            SETTINGS=$(find "$WS/_project" -type f \\( -name settings.gradle.kts -o -name settings.gradle \\) -print -quit)
+            if [[ -z "$SETTINGS" ]]; then
+              echo "::error::O ZIP não contém settings.gradle(.kts)."
               exit 1
             fi
-            ROOT=$(dirname "$SETTINGS")
+            ROOT="$(dirname "$SETTINGS")"
           fi
           echo "PROJECT_DIR=$ROOT" >> "$GITHUB_ENV"
-          echo "Raiz do projeto: $ROOT"
+          echo "Projeto: $ROOT"
           ls -la "$ROOT"
 
       - name: Set up JDK 17
@@ -49,65 +46,42 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # O runner ubuntu-latest já traz o Android SDK (ANDROID_HOME). Só aceitamos as licenças.
       - name: Accept Android SDK licenses
+        shell: bash
         run: |
-          SDKMANAGER=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | head -n 1)
-          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          set -o pipefail
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)
+          if [[ -n "$SDKMANAGER" ]]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+          fi
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      # Gera o wrapper (gradlew + jar) se não existir no projeto.
       - name: Ensure Gradle wrapper
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          if [ ! -f gradle/wrapper/gradle-wrapper.jar ] || [ ! -f gradlew ]; then
+          if [[ ! -f gradle/wrapper/gradle-wrapper.jar || ! -f gradlew ]]; then
             gradle wrapper --gradle-version 8.9
           fi
           chmod +x gradlew
           ./gradlew --version
 
-      # Corrige import inválido do Modifier.weight: em Compose ele é membro de RowScope/ColumnScope,
-      # não pode ser importado diretamente (o compilador acusa acesso internal).
       - name: Remove invalid Compose weight import
         working-directory: ${{ env.PROJECT_DIR }}
+        shell: bash
         run: |
-          find app/src -type f -name '*.kt' -exec sed -i '/^import androidx\\.compose\\.foundation\\.layout\\.weight$/d' {} +
-          if grep -R -n '^import androidx\\.compose\\.foundation\\.layout\\.weight        working-directory: ${{ env.PROJECT_DIR }}
-        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
-
-      - name: Build debug APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
-
-      - name: Verify APK was really produced
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
-          test -n "$APK"
-          test -s "$APK"
-          ls -l "$APK"
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: mobile2dstudio-debug-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-test-reports
-          path: ${{ env.PROJECT_DIR }}/app/build/reports/tests/
-          if-no-files-found: ignore
-          
- app/src; then
-            echo "::error::O import inválido de weight ainda está presente."
+          set -euo pipefail
+          if [[ -d app/src ]]; then
+            find app/src -type f -name '*.kt' -exec sed -i '/^import androidx\\.compose\\.foundation\\.layout\\.weight$/d' {} +
+          else
+            echo "::error::Diretório app/src não encontrado em $PWD"
+            exit 1
+          fi
+          if grep -R -n '^import androidx\\.compose\\.foundation\\.layout\\.weight$' app/src; then
+            echo "::error::Import inválido de weight ainda presente."
             exit 1
           fi
 
@@ -122,10 +96,10 @@ jobs:
       - name: Verify APK was really produced
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          APK=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+          APK=$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)
           test -n "$APK"
           test -s "$APK"
-          ls -l "$APK"
+          ls -lh "$APK"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -141,4 +115,3 @@ jobs:
           name: unit-test-reports
           path: ${{ env.PROJECT_DIR }}/app/build/reports/tests/
           if-no-files-found: ignore
-          
