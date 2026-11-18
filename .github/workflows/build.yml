@@ -29,7 +29,7 @@ jobs:
             fi
             mkdir -p "$WS/_project"
             unzip -q -o "$ZIP" -d "$WS/_project"
-            SETTINGS=$(find "$WS/_project" -type f \\( -name settings.gradle.kts -o -name settings.gradle \\) -print -quit)
+            SETTINGS=$(find "$WS/_project" -type f \( -name settings.gradle.kts -o -name settings.gradle \) -print -quit)
             if [[ -z "$SETTINGS" ]]; then
               echo "::error::O ZIP não contém settings.gradle(.kts)."
               exit 1
@@ -75,12 +75,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -d app/src ]]; then
-            find app/src -type f -name '*.kt' -exec sed -i '/^import androidx\\.compose\\.foundation\\.layout\\.weight$/d' {} +
+            find app/src -type f -name '*.kt' -exec sed -i '/^import androidx[.]compose[.]foundation[.]layout[.]weight$/d' {} +
           else
             echo "::error::Diretório app/src não encontrado em $PWD"
             exit 1
           fi
-          if grep -R -n '^import androidx\\.compose\\.foundation\\.layout\\.weight$' app/src; then
+          if grep -R -n '^import androidx[.]compose[.]foundation[.]layout[.]weight$' app/src; then
             echo "::error::Import inválido de weight ainda presente."
             exit 1
           fi
