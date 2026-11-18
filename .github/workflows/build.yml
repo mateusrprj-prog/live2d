@@ -70,6 +70,47 @@ jobs:
           chmod +x gradlew
           ./gradlew --version
 
+      # Corrige import inválido do Modifier.weight: em Compose ele é membro de RowScope/ColumnScope,
+      # não pode ser importado diretamente (o compilador acusa acesso internal).
+      - name: Remove invalid Compose weight import
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          find app/src -type f -name '*.kt' -exec sed -i '/^import androidx\\.compose\\.foundation\\.layout\\.weight$/d' {} +
+          if grep -R -n '^import androidx\\.compose\\.foundation\\.layout\\.weight        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
+
+      - name: Build debug APK
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Verify APK was really produced
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+          test -n "$APK"
+          test -s "$APK"
+          ls -l "$APK"
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile2dstudio-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: ${{ env.PROJECT_DIR }}/app/build/reports/tests/
+          if-no-files-found: ignore
+          
+ app/src; then
+            echo "::error::O import inválido de weight ainda está presente."
+            exit 1
+          fi
+
       - name: Unit tests
         working-directory: ${{ env.PROJECT_DIR }}
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
